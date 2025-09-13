@@ -1,0 +1,95 @@
+server:
+  port: 8057
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          secret-key: "Vlo2vcFdiXGgWqZLEpLw6kk99sH8/4odgC2XgZV0IbA=" # (if custom decoder configured)
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+
+      routes:
+        - id: tms-route
+          uri: lb://iotmining-tenant-management-service
+          predicates:
+            - Path=/tms/**
+          filters:
+            - StripPrefix=1
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 10
+                redis-rate-limiter.burstCapacity: 20
+            - name: CircuitBreaker
+              args:
+                name: tmsCB
+                fallbackUri: forward:/fallback
+
+        - id: dms-route
+          uri: lb://iotmining-device-management-service
+          predicates:
+            - Path=/dms/**
+          filters:
+            - StripPrefix=1
+            - name: CircuitBreaker
+              args:
+                name: dmsCB
+                fallbackUri: forward:/fallback
+
+        - id: auth-route
+          uri: lb://iotmining-auth-service
+          predicates:
+            - Path=/auth/**
+          filters:
+            - StripPrefix=1
+
+        - id: datafactory-route
+          uri: lb://iotmining-data-factory-service
+          predicates:
+            - Path=/datafactory/**
+          filters:
+            - StripPrefix=1
+            - name: CircuitBreaker
+              args:
+                name: dfCB
+                fallbackUri: forward:/fallback
+
+        - id: notification-route
+          uri: lb://iotmining-notification-service
+          predicates:
+            - Path=/notify/**
+          filters:
+            - StripPrefix=1
+            - name: CircuitBreaker
+              args:
+                name: notifyCB
+                fallbackUri: forward:/fallback
+
+        - id: public-api
+          uri: lb://iotmining-auth-service
+          predicates:
+            - Path=/public/**
+          filters:
+            - StripPrefix=1
+
+  redis:
+    host: localhost
+    port: 6379
+
+  zipkin:
+    base-url: http://localhost:9411
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0

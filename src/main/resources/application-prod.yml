@@ -1,0 +1,86 @@
+server:
+  port: ${SERVER_PORT:9057}
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          secret-key: ${JWT_SECRET_KEY}
+
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+
+      routes:
+        - id: tms-route
+          uri: ${API_GATEWAY_LB_TMS_URI:lb://iotmining-tenant-management-service}
+          predicates:
+            - Path=/tms/**
+          filters:
+            - StripPrefix=1
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 10
+                redis-rate-limiter.burstCapacity: 20
+            - name: CircuitBreaker
+              args:
+                name: tmsCB
+                fallbackUri: forward:/fallback
+
+        - id: dms-route
+          uri: ${API_GATEWAY_LB_DMS_URI:lb://iotmining-device-management-service}
+          predicates:
+            - Path=/dms/**
+          filters:
+            - StripPrefix=1
+            - name: CircuitBreaker
+              args:
+                name: dmsCB
+                fallbackUri: forward:/fallback
+
+        - id: auth-route
+          uri: ${API_GATEWAY_LB_AUTH_URI:lb://iotmining-auth-service}
+          predicates:
+            - Path=/auth/**
+          filters:
+            - StripPrefix=1
+
+        - id: datafactory-route
+          uri: ${API_GATEWAY_LB_DATAFACTORY_URI:lb://iotmining-data-factory-service}
+          predicates:
+            - Path=/datafactory/**
+          filters:
+            - StripPrefix=1
+            - name: CircuitBreaker
+              args:
+                name: dfCB
+                fallbackUri: forward:/fallback
+
+        - id: notification-route
+          uri: ${API_GATEWAY_LB_NOTIFICATION_URI:lb://iotmining-notification-service}
+          predicates:
+            - Path=/notify/**
+          filters:
+            - StripPrefix=1
+            - name: CircuitBreaker
+              args:
+                name: notifyCB
+                fallbackUri: forward:/fallback
+
+        - id: public-api
+          uri: ${API_GATEWAY_LB_PUBLIC_API_URI:lb://iotmining-auth-service}
+          predicates:
+            - Path=/public/**
+          filters:
+            - StripPrefix=1
+
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+
+  zipkin:
+    base-url: ${ZIPKIN_BASE_URL:http://localhost:9411}
