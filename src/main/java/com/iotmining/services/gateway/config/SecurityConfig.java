@@ -2,6 +2,7 @@ package com.iotmining.services.gateway.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
@@ -24,6 +25,22 @@ public class SecurityConfig {
         http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .authorizeExchange(exchanges -> exchanges
+                        // Preflight requests never carry an Authorization header (a
+                        // browser strips it before sending OPTIONS) - without this,
+                        // anyExchange().authenticated() below rejects every preflight
+                        // with 401 before spring-cloud-gateway's own CorsWebFilter
+                        // (configured via spring.cloud.gateway.globalcors in
+                        // application-dev.yml/application-prod.yml) ever gets a
+                        // chance to add the Access-Control-Allow-Origin header - the
+                        // browser then reports a bare CORS failure with no useful
+                        // detail, masking the real 401. Confirmed live: a real
+                        // preflight OPTIONS from the dashboard's own dev origin
+                        // (localhost:3000, already on the globalcors allowlist) came
+                        // back 401 with no CORS headers at all before this fix. Same
+                        // fix already applied to device-control-service and
+                        // dashboard-management-service's own SecurityConfig this
+                        // session - see their doc comments.
+                        .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .pathMatchers("/fallback").permitAll()
                         // Narrowed from "/actuator/**" - that previously exposed every
                         // actuator endpoint unauthenticated, including /actuator/env,
