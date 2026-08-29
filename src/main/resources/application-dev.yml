@@ -57,7 +57,25 @@ spring:
         - name: Retry
           args:
             retries: 2
-            series: SERVER_ERROR
+            # NOT series: SERVER_ERROR (every 5xx) - FallbackController
+            # always answers 503 when a CircuitBreaker trips (open breaker,
+            # connection refused, timeout), and that 503 counts as a
+            # SERVER_ERROR too. Retrying it re-runs the whole exchange, but
+            # the fallback's forward:/fallback response was already
+            # committed - the retry's second write then throws
+            # "java.lang.UnsupportedOperationException ... ServerHttpResponse
+            # already committed", confirmed live in this gateway's own logs
+            # (repeated for every call to a route whose downstream was
+            # down, e.g. rule-engine-route while rulechain-service wasn't
+            # running). Retrying an already-fallback-served request can
+            # never help anyway - the breaker opened because the service
+            # isn't answering, so hitting the same broken path again a
+            # moment later is never the right response to a 503 here.
+            # 502/504 are the ones actually worth a quick retry - real,
+            # transient network-level failures from a downstream that IS
+            # still reachable (a dropped connection, a slow response past
+            # the client timeout), not a tripped breaker.
+            statuses: BAD_GATEWAY, GATEWAY_TIMEOUT
             methods: GET
             backoff:
               firstBackoff: 50ms

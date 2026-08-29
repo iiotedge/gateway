@@ -48,7 +48,12 @@ spring:
         - name: Retry
           args:
             retries: 2
-            series: SERVER_ERROR
+            # See application-dev.yml's own comment on this same setting -
+            # not series: SERVER_ERROR, since FallbackController's 503 is
+            # itself a SERVER_ERROR and retrying an already-committed
+            # fallback response throws UnsupportedOperationException
+            # ("ServerHttpResponse already committed"), confirmed live.
+            statuses: BAD_GATEWAY, GATEWAY_TIMEOUT
             methods: GET
             backoff:
               firstBackoff: 50ms
