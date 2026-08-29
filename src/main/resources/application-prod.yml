@@ -58,6 +58,12 @@ spring:
         - AddResponseHeader=X-Content-Type-Options,nosniff
         - AddResponseHeader=X-XSS-Protection,1; mode=block
         - AddResponseHeader=Strict-Transport-Security,max-age=31536000; includeSubDomains
+        # Same reasoning as application-dev.yml's identical line - some
+        # downstream services still carry their own CORS bean for a
+        # non-gateway profile; stripping Origin here means they never see
+        # it and never add a second, duplicate Access-Control-Allow-Origin
+        # on top of this gateway's own (globalcors above).
+        - RemoveRequestHeader=Origin
 
       discovery:
         locator:

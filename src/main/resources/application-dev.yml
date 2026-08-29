@@ -67,6 +67,25 @@ spring:
         - AddResponseHeader=X-Content-Type-Options,nosniff
         - AddResponseHeader=X-XSS-Protection,1; mode=block
         - AddResponseHeader=Strict-Transport-Security,max-age=31536000; includeSubDomains
+        # Several downstream services (dashboard-management-service,
+        # user-settings-service, device-management-service, etc.) still
+        # carry their own @Profile("dev") CORS bean, added back when the
+        # frontend called each service directly with no gateway in front -
+        # several of those beans' own doc comments already say explicitly
+        # that they're redundant once something upstream (Nginx in prod,
+        # originally) already adds CORS headers. Now that this gateway is
+        # that upstream in dev too, forwarding the browser's Origin header
+        # downstream unchanged makes both layers add
+        # Access-Control-Allow-Origin - confirmed live, the browser
+        # correctly rejects a response with two values for that header.
+        # Stripping Origin here (globalcors above still runs first and
+        # adds it exactly once) means no downstream service ever sees it
+        # and never adds its own copy - a single change here instead of
+        # editing CORS config in 9 separate service repos, and it doesn't
+        # break calling a service directly (bypassing the gateway) for
+        # quick debugging, since Origin only gets stripped for traffic
+        # that actually flows through this filter.
+        - RemoveRequestHeader=Origin
 
       discovery:
         locator:
