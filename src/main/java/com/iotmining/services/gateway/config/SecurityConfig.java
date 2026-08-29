@@ -50,6 +50,23 @@ public class SecurityConfig {
                         // endpoints an external load balancer/orchestrator actually
                         // needs to probe without a token stay open.
                         .pathMatchers("/actuator/health", "/actuator/info").permitAll()
+                        // The SockJS/STOMP handshake (telemetry-stream-service's
+                        // WebSocketConfig registers it at this exact full path, no
+                        // prefix-stripping - see tss-websocket-route in
+                        // application-dev.yml/application-prod.yml) authenticates via
+                        // a "?access_token=" query param, not an Authorization header
+                        // - browsers can't set custom headers on a WebSocket upgrade,
+                        // and SockJS's own pre-upgrade "/info" negotiation call
+                        // doesn't send one either. anyExchange().authenticated() below
+                        // was rejecting both with a bare 401 (no CORS headers, since
+                        // Security short-circuits before CorsWebFilter runs - same
+                        // failure shape as the OPTIONS case above, confirmed live).
+                        // Safe to permit here: telemetry-stream-service's own
+                        // SecurityConfig already permitAll's this exact path for the
+                        // identical reason, relying on its StompAuthChannelInterceptor
+                        // to validate the token at the STOMP CONNECT frame instead -
+                        // same defense-in-depth split as every other route.
+                        .pathMatchers("/api/v1/telemetry-stream/ws-telemetry/**").permitAll()
                         // Declared before the broader /api/v1/auth/** permit below -
                         // path-matcher rules are evaluated in order and the first match
                         // wins, so the more specific role check has to come first or the
