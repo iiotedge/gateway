@@ -5,19 +5,28 @@ initial commit message for full reasoning behind each fix in this pass.
 
 ## Testing
 
-- [ ] **No full context-load / integration test.** `SecurityConfigTest`,
-      `RateLimiterConfigTest`, `ParamBlockerFilterTest`, and
-      `FallbackControllerTest` cover the real custom logic as focused unit
-      tests, but nothing boots the actual Spring context and exercises a
-      real route end-to-end in CI - this service needs a live Redis
-      (RequestRateLimiter) and ideally Eureka to do that meaningfully,
-      which means Testcontainers, not yet set up here. Everything was
-      instead verified with a real local boot against real running
-      services during development (real login through auth-service, a
-      real user-settings-service round trip, the device-control-service/
-      device-management-service route collision, actuator security) - see
-      the initial commit message - but that verification doesn't run
-      again on every future change the way an automated test would.
+- [x] ~~No full context-load / integration test~~ - resolved:
+      `RouteEndpointsIT` boots the real Spring context (`dev,test`
+      profiles - the real route table under test, not a stripped-down
+      test-only copy) and proves every route actually forwards an HTTP
+      request to its intended backend, not just that the config parses.
+      One shared WireMock instance stands in for all 14 distinct `lb://`
+      service names (Spring Cloud LoadBalancer's "simple" discovery
+      client, registered via `@DynamicPropertySource` once WireMock's
+      port is known - no Testcontainers, no real Eureka needed); each
+      route's own path predicate is what has to correctly steer a
+      request to the right stub, which is the thing actually worth
+      proving here. 37 cases: every authenticated route's happy path and
+      its unauthenticated-gets-401-never-reaches-backend counterpart, the
+      two route-ordering collisions (device-control-service vs.
+      device-management-service, the WS-vs-REST telemetry-stream-service
+      split including the StripPrefix behavior), the super-admin role
+      gate (both directions), CORS preflight, and an unmapped path
+      getting a clean 404. Bound to `maven-failsafe-plugin` (`*IT.java`),
+      so `mvn test` stays fast/network-free and only `mvn verify` runs
+      it - needs a real local Redis (`RequestRateLimiter` is wired into
+      most routes), same assumption every other check on this platform
+      already makes.
 
 ## Product / design
 

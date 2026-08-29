@@ -142,6 +142,15 @@
             <artifactId>reactor-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Stands in for every downstream service in RouteEndpointsIT - real
+             HTTP servers with scripted responses, so the gateway's actual
+             proxying/filter chain runs for real instead of being mocked
+             away. Version managed by iiotedge-bom. -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -193,6 +202,17 @@
                         </exclude>
                     </excludes>
                 </configuration>
+            </plugin>
+            <!-- iiotedge-parent's pluginManagement already binds the
+                 integration-test+verify executions for *IT.java classes
+                 (RouteEndpointsIT) - declaring the plugin here is enough to
+                 activate it, no executions need repeating. Keeps mvn test
+                 fast/network-free (WireMock, no real Eureka/Redis needed)
+                 while mvn verify additionally proves the full route table
+                 actually forwards HTTP requests correctly. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
             </plugin>
         </plugins>
     </build>

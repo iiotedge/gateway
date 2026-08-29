@@ -1,0 +1,19 @@
+# Layered on top of "dev" (RouteEndpointsIT activates "dev,test") so the
+# real route table in application-dev.yml is what's actually under test -
+# this profile only overrides what a test run needs to not depend on real
+# infrastructure that isn't there: no real Eureka server. Everything else
+# (JWT secret, Redis) intentionally keeps dev's own real values - Redis
+# is expected to be a real, already-running local instance, matching how
+# every other manual/automated verification on this platform already
+# assumes real local infra rather than spinning up Testcontainers for it.
+eureka:
+  client:
+    # Disables the Eureka-backed DiscoveryClient entirely, so Spring Cloud
+    # LoadBalancer's "simple" discovery client (backed by
+    # spring.cloud.discovery.client.simple.instances.*, registered by
+    # RouteEndpointsIT via @DynamicPropertySource once WireMock's actual
+    # port is known) is the only one in the context. Without this, the
+    # gateway would also try to register with and fetch from a real
+    # Eureka server at localhost:8761, which a test run has no business
+    # depending on.
+    enabled: false
