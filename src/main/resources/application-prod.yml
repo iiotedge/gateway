@@ -6,81 +6,229 @@ spring:
     oauth2:
       resourceserver:
         jwt:
+          jws-algorithms: HS256
+          # Required - no fallback. Real deployment (via iiotedge-cli.sh)
+          # actually runs application-dev.yml's profile (see
+          # application.yml's comment) with its own JWT_SECRET-keyed
+          # fallback; this property/profile pair is for anyone who does
+          # run the genuine prod profile by hand, where silently falling
+          # back to a published dev secret would be a real vulnerability.
           secret-key: ${JWT_SECRET_KEY}
 
-  cloud:
-    gateway:
-      discovery:
-        locator:
-          enabled: true
-          lower-case-service-id: true
-
-      routes:
-        - id: tms-route
-          uri: ${API_GATEWAY_LB_TMS_URI:lb://iotmining-tenant-management-service}
-          predicates:
-            - Path=/tms/**
-          filters:
-            - StripPrefix=1
-            - name: RequestRateLimiter
-              args:
-                redis-rate-limiter.replenishRate: 10
-                redis-rate-limiter.burstCapacity: 20
-            - name: CircuitBreaker
-              args:
-                name: tmsCB
-                fallbackUri: forward:/fallback
-
-        - id: dms-route
-          uri: ${API_GATEWAY_LB_DMS_URI:lb://iotmining-device-management-service}
-          predicates:
-            - Path=/dms/**
-          filters:
-            - StripPrefix=1
-            - name: CircuitBreaker
-              args:
-                name: dmsCB
-                fallbackUri: forward:/fallback
-
-        - id: auth-route
-          uri: ${API_GATEWAY_LB_AUTH_URI:lb://iotmining-auth-service}
-          predicates:
-            - Path=/auth/**
-          filters:
-            - StripPrefix=1
-
-        - id: datafactory-route
-          uri: ${API_GATEWAY_LB_DATAFACTORY_URI:lb://iotmining-data-factory-service}
-          predicates:
-            - Path=/datafactory/**
-          filters:
-            - StripPrefix=1
-            - name: CircuitBreaker
-              args:
-                name: dfCB
-                fallbackUri: forward:/fallback
-
-        - id: notification-route
-          uri: ${API_GATEWAY_LB_NOTIFICATION_URI:lb://iotmining-notification-service}
-          predicates:
-            - Path=/notify/**
-          filters:
-            - StripPrefix=1
-            - name: CircuitBreaker
-              args:
-                name: notifyCB
-                fallbackUri: forward:/fallback
-
-        - id: public-api
-          uri: ${API_GATEWAY_LB_PUBLIC_API_URI:lb://iotmining-auth-service}
-          predicates:
-            - Path=/public/**
-          filters:
-            - StripPrefix=1
-
-  redis:
-    host: ${REDIS_HOST:localhost}
-    port: ${REDIS_PORT:6379}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
 
   zipkin:
-    base-url: ${ZIPKIN_BASE_URL:http://localhost:9411}
+    base-url: ${ZIPKIN_BASE_URL:http://zipkin:9411}
+
+  cloud:
+    loadbalancer:
+      health-check:
+        enabled: true
+
+    gateway:
+      httpclient:
+        connect-timeout: 3000
+        response-timeout: 5000ms
+
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins:
+              - https://demo.iiotedge.in
+              - https://iiotedge.in
+            allowedHeaders: "*"
+            allowedMethods: "*"
+            allowCredentials: true
+
+      default-filters:
+        - name: Retry
+          args:
+            retries: 2
+            series: SERVER_ERROR
+            methods: GET
+            backoff:
+              firstBackoff: 50ms
+              maxBackoff: 500ms
+              factor: 2
+        - AddResponseHeader=X-Frame-Options,DENY
+        - AddResponseHeader=X-Content-Type-Options,nosniff
+        - AddResponseHeader=X-XSS-Protection,1; mode=block
+        - AddResponseHeader=Strict-Transport-Security,max-age=31536000; includeSubDomains
+
+      discovery:
+        locator:
+          enabled: false
+          lower-case-service-id: true
+
+      # Same route table as application-dev.yml (this service duplicates
+      # routes across profiles rather than sharing a base list - matches
+      # how this file was already structured before this pass, not a new
+      # pattern introduced here). Rate limits are higher/differentiated
+      # from dev's uniform 10/20: user-facing, high-traffic paths get more
+      # headroom; lower-traffic/operational ones stay modest. These are
+      # starting points, not measured - tune from real Prometheus traffic
+      # data once this is live.
+      routes:
+        - id: auth-route
+          uri: lb://IoTMining-Auth-Service
+          predicates: [ Path=/api/v1/auth/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 50, redis-rate-limiter.burstCapacity: 200 }
+            - name: CircuitBreaker
+              args: { name: authCB, fallbackUri: forward:/fallback }
+
+        - id: dashboard-route
+          uri: lb://dashboard-management-service
+          predicates: [ Path=/api/dashboards/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 50, redis-rate-limiter.burstCapacity: 200 }
+            - name: CircuitBreaker
+              args: { name: dashboardCB, fallbackUri: forward:/fallback }
+
+        - id: datafactory-route
+          uri: lb://IoTMining-Data-Factory-Service
+          predicates: [ Path=/thresholds/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 30, redis-rate-limiter.burstCapacity: 100 }
+            - name: CircuitBreaker
+              args: { name: dfCB, fallbackUri: forward:/fallback }
+
+        # Same ordering rationale as application-dev.yml: more specific
+        # device-control-service path declared before device-management-
+        # service's general one.
+        - id: device-control-commands-route
+          uri: lb://device-control-service
+          predicates: [ Path=/api/v1/devices/*/commands/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 50, redis-rate-limiter.burstCapacity: 200 }
+            - name: CircuitBreaker
+              args: { name: deviceControlCB, fallbackUri: forward:/fallback }
+
+        - id: device-control-status-route
+          uri: lb://device-control-service
+          predicates: [ Path=/api/v1/commands/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 50, redis-rate-limiter.burstCapacity: 200 }
+            - name: CircuitBreaker
+              args: { name: deviceControlCB, fallbackUri: forward:/fallback }
+
+        - id: dms-route
+          uri: lb://device-management-service
+          predicates: [ Path=/api/v1/devices/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 50, redis-rate-limiter.burstCapacity: 200 }
+            - name: CircuitBreaker
+              args: { name: dmsCB, fallbackUri: forward:/fallback }
+
+        - id: device-profile-route
+          uri: lb://IoTMining-Device-Profile-Service
+          predicates: [ Path=/api/v1/device-profile/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 30, redis-rate-limiter.burstCapacity: 100 }
+            - name: CircuitBreaker
+              args: { name: deviceProfileCB, fallbackUri: forward:/fallback }
+
+        - id: ai-v1-route
+          uri: lb://ai-service
+          predicates: [ Path=/api/v1/ai/** ]
+          filters:
+            - name: CircuitBreaker
+              args: { name: aiCB, fallbackUri: forward:/fallback }
+
+        - id: ai-legacy-route
+          uri: lb://ai-service
+          predicates: [ Path=/api/ai/** ]
+          filters:
+            - name: CircuitBreaker
+              args: { name: aiCB, fallbackUri: forward:/fallback }
+
+        - id: notification-route
+          uri: lb://IoTMining-Notification-Service
+          predicates: [ Path=/api/notifications/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 30, redis-rate-limiter.burstCapacity: 100 }
+            - name: CircuitBreaker
+              args: { name: notifyCB, fallbackUri: forward:/fallback }
+
+        - id: object-storage-route
+          uri: lb://Object-Storage-Service
+          predicates: [ Path=/api/v1/object/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 30, redis-rate-limiter.burstCapacity: 100 }
+            - name: CircuitBreaker
+              args: { name: objectStorageCB, fallbackUri: forward:/fallback }
+
+        - id: ocpp-route
+          uri: lb://ocpp-service
+          predicates: [ Path=/api/chargepoints/** ]
+          filters:
+            - name: CircuitBreaker
+              args: { name: ocppCB, fallbackUri: forward:/fallback }
+
+        - id: rule-engine-route
+          uri: lb://rulechain-service
+          predicates: [ Path=/api/v1/rule-engine/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 30, redis-rate-limiter.burstCapacity: 100 }
+            - name: CircuitBreaker
+              args: { name: ruleEngineCB, fallbackUri: forward:/fallback }
+
+        - id: tss-websocket-route
+          uri: lb://telemetry-stream-service
+          predicates: [ Path=/api/v1/telemetry-stream/ws-telemetry/** ]
+
+        - id: tss-rest-route
+          uri: lb://telemetry-stream-service
+          predicates: [ Path=/api/v1/telemetry-stream/** ]
+          filters:
+            - StripPrefix=3
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 50, redis-rate-limiter.burstCapacity: 200 }
+            - name: CircuitBreaker
+              args: { name: tssCB, fallbackUri: forward:/fallback }
+
+        - id: tms-route
+          uri: lb://tenant-management-service
+          predicates: [ Path=/api/v1/tenants/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 50, redis-rate-limiter.burstCapacity: 200 }
+            - name: CircuitBreaker
+              args: { name: tmsCB, fallbackUri: forward:/fallback }
+
+        - id: user-settings-route
+          uri: lb://user-settings-service
+          predicates: [ Path=/api/v1/settings/** ]
+          filters:
+            - name: RequestRateLimiter
+              args: { redis-rate-limiter.replenishRate: 30, redis-rate-limiter.burstCapacity: 100 }
+            - name: CircuitBreaker
+              args: { name: userSettingsCB, fallbackUri: forward:/fallback }
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 15s
+        permitted-number-of-calls-in-half-open-state: 5
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 6s

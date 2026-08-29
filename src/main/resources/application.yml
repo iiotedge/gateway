@@ -1,44 +1,62 @@
 spring:
-
-#  cloud:
-#    config:
-#      enabled: false
   config:
     import: "optional:configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
-
-  #  config:
-#    import: "optional:configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
   application:
     name: IoTMining-Gateway-Service
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:prod}
+    # This platform's real production deployment (see iiotedge-cli.sh's
+    # do_update_services) runs every service - this one included - with
+    # SPRING_PROFILES_ACTIVE=dev and supplies real production values purely
+    # via env vars, rather than ever actually activating an application-
+    # prod.yml profile. "dev" is the correct default here for that reason;
+    # application-prod.yml is kept for anyone who does run the real prod
+    # profile by hand (a non-CLI deployment), and its env vars (without
+    # dev-safe fallbacks) still take precedence over application-dev.yml's
+    # hardcoded defaults the moment they're set, regardless of which
+    # profile is active - Spring's env var property source outranks
+    # profile-specific YAML either way.
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
 server:
-  port: 8057
+  port: ${SERVER_PORT:8057}
+  # Spring WebFlux/Reactor Netty otherwise sees Nginx's own address as the
+  # request's remote address for every single request once this gateway
+  # sits behind Nginx (per the updated iiotedge-cli.sh) - collapsing
+  # RateLimiterConfig's per-IP fallback key (used for unauthenticated
+  # traffic) down to "Nginx's one address" for everyone. This makes
+  # Reactor Netty resolve the real client address from the
+  # X-Forwarded-For/Forwarded headers Nginx already sets instead.
+  forward-headers-strategy: framework
 
 eureka:
   client:
     service-url:
-      defaultZone: ${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://admin:8506@localhost:8761/eureka/}
     fetch-registry: true
     register-with-eureka: true
   instance:
-    prefer-ip-address: true  # Use IP instead of hostname for discovery
+    prefer-ip-address: true
 
 management:
   endpoints:
     web:
       exposure:
-        include: "*"
+        # Was "*" - exposed every actuator endpoint, including /env,
+        # /beans, /heapdump, and (if ever enabled) /shutdown, on top of
+        # SecurityConfig previously permitAll-ing the entire /actuator/**
+        # tree. "gateway" is genuinely useful ops surface (live route
+        # table, per-route metrics via /actuator/gateway/routes) so it
+        # stays; the wildcard doesn't.
+        include: health,info,gateway,prometheus
+  endpoint:
+    health:
+      show-details: never
+    gateway:
+      access: read-only
   tracing:
     enabled: true
 
-#logging:
-#  level:
-#    org.springframework.cloud.gateway: DEBUG
-#    reactor.netty: INFO
-#
-
 logging:
   level:
-    org.springframework.security: DEBUG
-    org.springframework.web.server: DEBUG
+    org.springframework.cloud.gateway: INFO
+    reactor.netty: INFO
