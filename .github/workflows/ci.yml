@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   pipeline:
-    uses: iiotedge/platform-build/.github/workflows/maven-service.yml@65f0f5a918e64da716bd404dcdc6b9d0fcef0a9e
+    uses: iiotedge/platform-build/.github/workflows/maven-service.yml@1c57bad2e3cb6a9dd5bc33b5ea53d586893cc2f3
     permissions:
       contents: write          # GitHub Release (version tags only)
       packages: write          # GHCR push (main and version tags only)
@@ -31,3 +31,4 @@ jobs:
     with:
       redis: true                               # integration tests use a real Redis (rate limiter)
       image-on-pull-request: true               # temporary: exercise the image job on this PR
+      trivy-blocking: false                     # temporary: exercise the non-blocking gate path
