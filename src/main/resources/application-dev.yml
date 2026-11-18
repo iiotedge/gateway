@@ -32,256 +32,261 @@ spring:
         enabled: true
 
     gateway:
-      httpclient:
-        connect-timeout: 3000
-        response-timeout: 5000ms
+      # Spring Cloud Gateway 5 reads its server settings only under
+      # spring.cloud.gateway.server.webflux.* (the pre-5 spring.cloud.gateway.*
+      # keys are no longer bound, so routes, CORS and filters would vanish).
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 3000
+            response-timeout: 5000ms
 
-      globalcors:
-        corsConfigurations:
-          '[/**]':
-            allowedOrigins:
-              - http://localhost:3000
-              - http://localhost:3001
-              - http://localhost:3002
-            allowedHeaders: "*"
-            allowedMethods: "*"
-            allowCredentials: true
+          globalcors:
+            corsConfigurations:
+              '[/**]':
+                allowedOrigins:
+                  - http://localhost:3000
+                  - http://localhost:3001
+                  - http://localhost:3002
+                allowedHeaders: "*"
+                allowedMethods: "*"
+                allowCredentials: true
 
-      # Applied to every route below, in addition to any route-specific
-      # filters. Retry only ever engages for GET (methods: GET) - POST/PUT/
-      # DELETE are never retried here, so this can't duplicate a
-      # side-effecting call. Security headers match what only prod had
-      # before - now consistent so dev actually exercises the same
-      # response shape prod serves.
-      default-filters:
-        - name: Retry
-          args:
-            retries: 2
-            # NOT series: SERVER_ERROR (every 5xx) - FallbackController
-            # always answers 503 when a CircuitBreaker trips (open breaker,
-            # connection refused, timeout), and that 503 counts as a
-            # SERVER_ERROR too. Retrying it re-runs the whole exchange, but
-            # the fallback's forward:/fallback response was already
-            # committed - the retry's second write then throws
-            # "java.lang.UnsupportedOperationException ... ServerHttpResponse
-            # already committed", confirmed live in this gateway's own logs
-            # (repeated for every call to a route whose downstream was
-            # down, e.g. rule-engine-route while rulechain-service wasn't
-            # running). Retrying an already-fallback-served request can
-            # never help anyway - the breaker opened because the service
-            # isn't answering, so hitting the same broken path again a
-            # moment later is never the right response to a 503 here.
-            # 502/504 are the ones actually worth a quick retry - real,
-            # transient network-level failures from a downstream that IS
-            # still reachable (a dropped connection, a slow response past
-            # the client timeout), not a tripped breaker.
-            statuses: BAD_GATEWAY, GATEWAY_TIMEOUT
-            methods: GET
-            backoff:
-              firstBackoff: 50ms
-              maxBackoff: 500ms
-              factor: 2
-        - AddResponseHeader=X-Frame-Options,DENY
-        - AddResponseHeader=X-Content-Type-Options,nosniff
-        - AddResponseHeader=X-XSS-Protection,1; mode=block
-        - AddResponseHeader=Strict-Transport-Security,max-age=31536000; includeSubDomains
-        # Several downstream services (dashboard-management-service,
-        # user-settings-service, device-management-service, etc.) still
-        # carry their own @Profile("dev") CORS bean, added back when the
-        # frontend called each service directly with no gateway in front -
-        # several of those beans' own doc comments already say explicitly
-        # that they're redundant once something upstream (Nginx in prod,
-        # originally) already adds CORS headers. Now that this gateway is
-        # that upstream in dev too, forwarding the browser's Origin header
-        # downstream unchanged makes both layers add
-        # Access-Control-Allow-Origin - confirmed live, the browser
-        # correctly rejects a response with two values for that header.
-        # Stripping Origin here (globalcors above still runs first and
-        # adds it exactly once) means no downstream service ever sees it
-        # and never adds its own copy - a single change here instead of
-        # editing CORS config in 9 separate service repos, and it doesn't
-        # break calling a service directly (bypassing the gateway) for
-        # quick debugging, since Origin only gets stripped for traffic
-        # that actually flows through this filter.
-        - RemoveRequestHeader=Origin
+          # Applied to every route below, in addition to any route-specific
+          # filters. Retry only ever engages for GET (methods: GET) - POST/PUT/
+          # DELETE are never retried here, so this can't duplicate a
+          # side-effecting call. Security headers match what only prod had
+          # before - now consistent so dev actually exercises the same
+          # response shape prod serves.
+          default-filters:
+            - name: Retry
+              args:
+                retries: 2
+                # NOT series: SERVER_ERROR (every 5xx) - FallbackController
+                # always answers 503 when a CircuitBreaker trips (open breaker,
+                # connection refused, timeout), and that 503 counts as a
+                # SERVER_ERROR too. Retrying it re-runs the whole exchange, but
+                # the fallback's forward:/fallback response was already
+                # committed - the retry's second write then throws
+                # "java.lang.UnsupportedOperationException ... ServerHttpResponse
+                # already committed", confirmed live in this gateway's own logs
+                # (repeated for every call to a route whose downstream was
+                # down, e.g. rule-engine-route while rulechain-service wasn't
+                # running). Retrying an already-fallback-served request can
+                # never help anyway - the breaker opened because the service
+                # isn't answering, so hitting the same broken path again a
+                # moment later is never the right response to a 503 here.
+                # 502/504 are the ones actually worth a quick retry - real,
+                # transient network-level failures from a downstream that IS
+                # still reachable (a dropped connection, a slow response past
+                # the client timeout), not a tripped breaker.
+                statuses: BAD_GATEWAY, GATEWAY_TIMEOUT
+                methods: GET
+                backoff:
+                  firstBackoff: 50ms
+                  maxBackoff: 500ms
+                  factor: 2
+            - AddResponseHeader=X-Frame-Options,DENY
+            - AddResponseHeader=X-Content-Type-Options,nosniff
+            - AddResponseHeader=X-XSS-Protection,1; mode=block
+            - AddResponseHeader=Strict-Transport-Security,max-age=31536000; includeSubDomains
+            # Several downstream services (dashboard-management-service,
+            # user-settings-service, device-management-service, etc.) still
+            # carry their own @Profile("dev") CORS bean, added back when the
+            # frontend called each service directly with no gateway in front -
+            # several of those beans' own doc comments already say explicitly
+            # that they're redundant once something upstream (Nginx in prod,
+            # originally) already adds CORS headers. Now that this gateway is
+            # that upstream in dev too, forwarding the browser's Origin header
+            # downstream unchanged makes both layers add
+            # Access-Control-Allow-Origin - confirmed live, the browser
+            # correctly rejects a response with two values for that header.
+            # Stripping Origin here (globalcors above still runs first and
+            # adds it exactly once) means no downstream service ever sees it
+            # and never adds its own copy - a single change here instead of
+            # editing CORS config in 9 separate service repos, and it doesn't
+            # break calling a service directly (bypassing the gateway) for
+            # quick debugging, since Origin only gets stripped for traffic
+            # that actually flows through this filter.
+            - RemoveRequestHeader=Origin
 
-      discovery:
-        locator:
-          enabled: false
-          lower-case-service-id: true
+          discovery:
+            locator:
+              enabled: false
+              lower-case-service-id: true
 
-      # No StripPrefix anywhere below except the one noted case - every
-      # predicate matches each service's own real, verified controller
-      # base path (@RequestMapping, confirmed directly against source, not
-      # guessed) and forwards the request unchanged. The previous route
-      # table stripped a short external prefix (e.g. "/auth/**" ->
-      # StripPrefix=1 -> "/**") that didn't correspond to any real
-      # endpoint - auth-service's actual base path is "/api/v1/auth/**",
-      # so that route could never have worked. Dev-profile rate limits are
-      # deliberately tight (uniform 10/20) - just enough to prove the
-      # limiter engages locally, not tuned for real traffic (see prod for
-      # that).
-      routes:
-        - id: auth-route
-          uri: lb://IoTMining-Auth-Service
-          predicates: [ Path=/api/v1/auth/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: authCB, fallbackUri: forward:/fallback }
+          # No StripPrefix anywhere below except the one noted case - every
+          # predicate matches each service's own real, verified controller
+          # base path (@RequestMapping, confirmed directly against source, not
+          # guessed) and forwards the request unchanged. The previous route
+          # table stripped a short external prefix (e.g. "/auth/**" ->
+          # StripPrefix=1 -> "/**") that didn't correspond to any real
+          # endpoint - auth-service's actual base path is "/api/v1/auth/**",
+          # so that route could never have worked. Dev-profile rate limits are
+          # deliberately tight (uniform 10/20) - just enough to prove the
+          # limiter engages locally, not tuned for real traffic (see prod for
+          # that).
+          routes:
+            - id: auth-route
+              uri: lb://IoTMining-Auth-Service
+              predicates: [ Path=/api/v1/auth/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: authCB, fallbackUri: forward:/fallback }
 
-        - id: dashboard-route
-          uri: lb://dashboard-management-service
-          predicates: [ Path=/api/dashboards/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: dashboardCB, fallbackUri: forward:/fallback }
+            - id: dashboard-route
+              uri: lb://dashboard-management-service
+              predicates: [ Path=/api/dashboards/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: dashboardCB, fallbackUri: forward:/fallback }
 
-        - id: datafactory-route
-          uri: lb://IoTMining-Data-Factory-Service
-          predicates: [ Path=/thresholds/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: dfCB, fallbackUri: forward:/fallback }
+            - id: datafactory-route
+              uri: lb://IoTMining-Data-Factory-Service
+              predicates: [ Path=/thresholds/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: dfCB, fallbackUri: forward:/fallback }
 
-        # Declared before device-management-route below: /api/v1/devices/
-        # {deviceId}/commands is device-control-service's path, but it
-        # falls inside device-management-service's own /api/v1/devices/**
-        # base path too - a genuine, pre-existing overlap between the two
-        # services, not something this gateway can fix on its own. Route
-        # order breaks the tie: the more specific predicate is matched
-        # first regardless of declaration order for equal specificity, but
-        # Spring Cloud Gateway resolves ties by declaration order, so the
-        # specific one must come first.
-        - id: device-control-commands-route
-          uri: lb://device-control-service
-          predicates: [ Path=/api/v1/devices/*/commands/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: deviceControlCB, fallbackUri: forward:/fallback }
+            # Declared before device-management-route below: /api/v1/devices/
+            # {deviceId}/commands is device-control-service's path, but it
+            # falls inside device-management-service's own /api/v1/devices/**
+            # base path too - a genuine, pre-existing overlap between the two
+            # services, not something this gateway can fix on its own. Route
+            # order breaks the tie: the more specific predicate is matched
+            # first regardless of declaration order for equal specificity, but
+            # Spring Cloud Gateway resolves ties by declaration order, so the
+            # specific one must come first.
+            - id: device-control-commands-route
+              uri: lb://device-control-service
+              predicates: [ Path=/api/v1/devices/*/commands/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: deviceControlCB, fallbackUri: forward:/fallback }
 
-        - id: device-control-status-route
-          uri: lb://device-control-service
-          predicates: [ Path=/api/v1/commands/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: deviceControlCB, fallbackUri: forward:/fallback }
+            - id: device-control-status-route
+              uri: lb://device-control-service
+              predicates: [ Path=/api/v1/commands/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: deviceControlCB, fallbackUri: forward:/fallback }
 
-        - id: dms-route
-          uri: lb://device-management-service
-          predicates: [ Path=/api/v1/devices/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: dmsCB, fallbackUri: forward:/fallback }
+            - id: dms-route
+              uri: lb://device-management-service
+              predicates: [ Path=/api/v1/devices/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: dmsCB, fallbackUri: forward:/fallback }
 
-        - id: device-profile-route
-          uri: lb://IoTMining-Device-Profile-Service
-          predicates: [ Path=/api/v1/device-profile/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: deviceProfileCB, fallbackUri: forward:/fallback }
+            - id: device-profile-route
+              uri: lb://IoTMining-Device-Profile-Service
+              predicates: [ Path=/api/v1/device-profile/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: deviceProfileCB, fallbackUri: forward:/fallback }
 
-        - id: ai-v1-route
-          uri: lb://ai-service
-          predicates: [ Path=/api/v1/ai/** ]
-          filters:
-            - name: CircuitBreaker
-              args: { name: aiCB, fallbackUri: forward:/fallback }
+            - id: ai-v1-route
+              uri: lb://ai-service
+              predicates: [ Path=/api/v1/ai/** ]
+              filters:
+                - name: CircuitBreaker
+                  args: { name: aiCB, fallbackUri: forward:/fallback }
 
-        - id: ai-legacy-route
-          uri: lb://ai-service
-          predicates: [ Path=/api/ai/** ]
-          filters:
-            - name: CircuitBreaker
-              args: { name: aiCB, fallbackUri: forward:/fallback }
+            - id: ai-legacy-route
+              uri: lb://ai-service
+              predicates: [ Path=/api/ai/** ]
+              filters:
+                - name: CircuitBreaker
+                  args: { name: aiCB, fallbackUri: forward:/fallback }
 
-        - id: notification-route
-          uri: lb://IoTMining-Notification-Service
-          predicates: [ Path=/api/notifications/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: notifyCB, fallbackUri: forward:/fallback }
+            - id: notification-route
+              uri: lb://IoTMining-Notification-Service
+              predicates: [ Path=/api/notifications/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: notifyCB, fallbackUri: forward:/fallback }
 
-        - id: object-storage-route
-          uri: lb://Object-Storage-Service
-          predicates: [ Path=/api/v1/object/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: objectStorageCB, fallbackUri: forward:/fallback }
+            - id: object-storage-route
+              uri: lb://Object-Storage-Service
+              predicates: [ Path=/api/v1/object/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: objectStorageCB, fallbackUri: forward:/fallback }
 
-        - id: ocpp-route
-          uri: lb://ocpp-service
-          predicates: [ Path=/api/chargepoints/** ]
-          filters:
-            - name: CircuitBreaker
-              args: { name: ocppCB, fallbackUri: forward:/fallback }
+            - id: ocpp-route
+              uri: lb://ocpp-service
+              predicates: [ Path=/api/chargepoints/** ]
+              filters:
+                - name: CircuitBreaker
+                  args: { name: ocppCB, fallbackUri: forward:/fallback }
 
-        - id: rule-engine-route
-          uri: lb://rulechain-service
-          predicates: [ Path=/api/v1/rule-engine/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: ruleEngineCB, fallbackUri: forward:/fallback }
+            - id: rule-engine-route
+              uri: lb://rulechain-service
+              predicates: [ Path=/api/v1/rule-engine/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: ruleEngineCB, fallbackUri: forward:/fallback }
 
-        # Declared before the general telemetry-stream-route below: the
-        # SockJS/STOMP WebSocket endpoint needs its full path preserved
-        # unstripped (WebSocketConfig registers it at exactly this path -
-        # see telemetry-stream-service's own history this session), while
-        # the plain REST /history endpoint underneath the same external
-        # prefix needs the prefix stripped (its real path is bare
-        # "/history"). No CircuitBreaker/RequestRateLimiter on the WS
-        # route - both assume a request/response cycle, not a long-lived
-        # upgraded connection.
-        - id: tss-websocket-route
-          uri: lb://telemetry-stream-service
-          predicates: [ Path=/api/v1/telemetry-stream/ws-telemetry/** ]
+            # Declared before the general telemetry-stream-route below: the
+            # SockJS/STOMP WebSocket endpoint needs its full path preserved
+            # unstripped (WebSocketConfig registers it at exactly this path -
+            # see telemetry-stream-service's own history this session), while
+            # the plain REST /history endpoint underneath the same external
+            # prefix needs the prefix stripped (its real path is bare
+            # "/history"). No CircuitBreaker/RequestRateLimiter on the WS
+            # route - both assume a request/response cycle, not a long-lived
+            # upgraded connection.
+            - id: tss-websocket-route
+              uri: lb://telemetry-stream-service
+              predicates: [ Path=/api/v1/telemetry-stream/ws-telemetry/** ]
 
-        - id: tss-rest-route
-          uri: lb://telemetry-stream-service
-          predicates: [ Path=/api/v1/telemetry-stream/** ]
-          filters:
-            - StripPrefix=3
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: tssCB, fallbackUri: forward:/fallback }
+            - id: tss-rest-route
+              uri: lb://telemetry-stream-service
+              predicates: [ Path=/api/v1/telemetry-stream/** ]
+              filters:
+                - StripPrefix=3
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: tssCB, fallbackUri: forward:/fallback }
 
-        - id: tms-route
-          uri: lb://tenant-management-service
-          predicates: [ Path=/api/v1/tenants/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: tmsCB, fallbackUri: forward:/fallback }
+            - id: tms-route
+              uri: lb://tenant-management-service
+              predicates: [ Path=/api/v1/tenants/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: tmsCB, fallbackUri: forward:/fallback }
 
-        - id: user-settings-route
-          uri: lb://user-settings-service
-          predicates: [ Path=/api/v1/settings/** ]
-          filters:
-            - name: RequestRateLimiter
-              args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
-            - name: CircuitBreaker
-              args: { name: userSettingsCB, fallbackUri: forward:/fallback }
+            - id: user-settings-route
+              uri: lb://user-settings-service
+              predicates: [ Path=/api/v1/settings/** ]
+              filters:
+                - name: RequestRateLimiter
+                  args: { redis-rate-limiter.replenishRate: 10, redis-rate-limiter.burstCapacity: 20 }
+                - name: CircuitBreaker
+                  args: { name: userSettingsCB, fallbackUri: forward:/fallback }
 
 # Shared default for every CircuitBreaker instance referenced above (a
 # name not explicitly configured below falls back to this) - previously

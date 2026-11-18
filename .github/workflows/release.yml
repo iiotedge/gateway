@@ -40,6 +40,20 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The integration tests run the dev profile, whose RequestRateLimiter
+    # talks to Redis at localhost:6379 by default. EdgeProtectionsIT checks
+    # the limiter's buckets for real, so it needs a running Redis rather than
+    # the limiter's allow-on-error fallback.
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 

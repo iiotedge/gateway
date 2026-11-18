@@ -13,7 +13,7 @@
     <parent>
         <groupId>com.iiotedge.build</groupId>
         <artifactId>iiotedge-parent</artifactId>
-        <version>2025.08.18</version>
+        <version>2026.11.18</version>
         <relativePath/>
     </parent>
 
@@ -38,7 +38,7 @@
             <dependency>
                 <groupId>com.iiotedge.build</groupId>
                 <artifactId>iiotedge-bom</artifactId>
-                <version>2025.08.18</version>
+                <version>2026.11.18</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -53,9 +53,12 @@
     </properties>
 
     <dependencies>
+        <!-- Spring Cloud Gateway 5 (Spring Cloud 2025.1) no longer publishes
+             spring-cloud-starter-gateway; the reactive server is this starter.
+             Its properties live under spring.cloud.gateway.server.webflux.*. -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-gateway</artifactId>
+            <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
         </dependency>
 
         <dependency>
@@ -64,7 +67,7 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+            <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
         </dependency>
 
         <dependency>
@@ -99,13 +102,14 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- Spring Boot 4 moved the Brave tracing and Zipkin auto-configuration out
+             of spring-boot-actuator-autoconfigure into spring-boot-micrometer-tracing-brave
+             and spring-boot-zipkin. With only the bare micrometer-tracing-bridge-brave
+             and zipkin-reporter-brave libraries, tracing would silently stay off.
+             This starter brings both libraries plus their auto-configuration. -->
         <dependency>
-            <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-tracing-bridge-brave</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.zipkin.reporter2</groupId>
-            <artifactId>zipkin-reporter-brave</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-zipkin</artifactId>
         </dependency>
 
         <dependency>
